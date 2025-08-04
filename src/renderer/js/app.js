@@ -78,7 +78,7 @@ const HomeView = {
                 <button class="drink-button" @click="addIntake" :disabled="loading">
                     <div class="button-content">
                         <span class="button-icon">💧</span>
-                        <span class="button-text">{{ loading ? 'Adicionando...' : 'Bebi água!' }}/>
+                        <span class="button-text">{{ loading ? 'Adicionando...' : 'Bebi água!' }}</span>
                     </div>
                 </button>
             </div>
