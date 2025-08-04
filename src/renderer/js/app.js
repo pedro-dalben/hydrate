@@ -86,27 +86,261 @@ const HomeView = {
             }
         },
         setupAlarmListener() {
+            console.log('=== CONFIGURANDO LISTENER DE ALARME ===');
             window.hydrateAPI.onAlarmTriggered(() => {
+                console.log('=== ALARME RECEBIDO NO RENDERER ===');
+                console.log('Timestamp do alarme:', new Date().toISOString());
                 this.showHydrationAlert();
             });
         },
         setupAudio() {
-            this.audioElement = new Audio('assets/sounds/water-droplet-drip.mp3');
-            this.audioElement.loop = true;
+            console.log('=== CONFIGURANDO ÁUDIO ===');
+            const audioPath = './assets/sounds/water-droplet-drip.mp3';
+            console.log('Caminho do áudio:', audioPath);
+
+            this.audioElement = new Audio(audioPath);
+            this.audioElement.preload = 'auto';
+            this.audioElement.loop = false;
+            this.soundInterval = null;
+            this.audioReady = false;
+
+            // Adicionar listeners para debug
+            this.audioElement.addEventListener('loadstart', () => {
+                console.log('Áudio: Iniciando carregamento');
+            });
+
+            this.audioElement.addEventListener('canplay', () => {
+                console.log('Áudio: Pronto para reproduzir');
+                this.audioReady = true;
+            });
+
+            this.audioElement.addEventListener('canplaythrough', () => {
+                console.log('Áudio: Pode reproduzir completamente');
+                this.audioReady = true;
+            });
+
+            this.audioElement.addEventListener('error', (e) => {
+                console.error('ERRO NO ÁUDIO:', e);
+                console.error('Tipo do erro:', e.type);
+                console.error('Erro detalhado:', this.audioElement.error);
+                if (this.audioElement.error) {
+                    console.error('Código do erro:', this.audioElement.error.code);
+                    console.error('Mensagem do erro:', this.audioElement.error.message);
+                }
+            });
+
+            this.audioElement.addEventListener('play', () => {
+                console.log('✅ Áudio: Reprodução iniciada');
+            });
+
+            this.audioElement.addEventListener('ended', () => {
+                console.log('Áudio: Reprodução finalizada');
+            });
+
+            this.audioElement.addEventListener('loadeddata', () => {
+                console.log('Áudio: Dados carregados');
+            });
+
+            this.audioElement.addEventListener('loadedmetadata', () => {
+                console.log('Áudio: Metadados carregados');
+                console.log('Duração:', this.audioElement.duration);
+            });
+
+            // Tentar carregar o áudio
+            console.log('Carregando arquivo de áudio...');
+            this.audioElement.load();
+
+            // Criar um contexto de áudio para garantir que funcione
+            this.setupAudioContext();
+        },
+
+        setupAudioContext() {
+            // Criar um contexto de áudio para contornar restrições do browser
+            try {
+                if (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined') {
+                    const AudioContextClass = AudioContext || webkitAudioContext;
+                    this.audioContext = new AudioContextClass();
+                    console.log('AudioContext criado:', this.audioContext.state);
+
+                    // Tentar ativar o contexto
+                    if (this.audioContext.state === 'suspended') {
+                        this.audioContext.resume().then(() => {
+                            console.log('AudioContext ativado');
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Erro ao criar AudioContext:', error);
+            }
         },
         async showHydrationAlert() {
+            console.log('=== SHOW HYDRATION ALERT CHAMADA ===');
+            console.log('Definindo showAlert como true...');
             this.showAlert = true;
+            console.log('showAlert atual:', this.showAlert);
 
             // Tocar som se habilitado
             try {
+                console.log('Carregando configurações...');
                 const config = await window.hydrateAPI.getConfig();
-                if (config.soundEnabled && this.audioElement) {
-                    this.audioElement.volume = config.soundVolume || 0.7;
-                    this.audioElement.play();
+                console.log('Config do som:', config);
+
+                if (config.soundEnabled) {
+                    console.log('Som habilitado, tentando múltiplas abordagens...');
+
+                    // Abordagem 1: Tentar com o audioElement
+                    if (this.audioElement) {
+                        console.log('Tentativa 1: AudioElement');
+                        await this.tryPlayAudio();
+                    }
+
+                    // Abordagem 2: Criar novo elemento de áudio
+                    console.log('Tentativa 2: Novo elemento de áudio');
+                    await this.tryPlayNewAudio();
+
+                    // Abordagem 3: Usar Web Audio API
+                    console.log('Tentativa 3: Web Audio API');
+                    await this.tryWebAudioAPI();
+
+                    // Iniciar loop de som
+                    this.startSoundLoop();
+                } else {
+                    console.log('Som desabilitado nas configurações');
                 }
             } catch (error) {
-                console.error('Erro ao tocar som:', error);
+                console.error('Erro ao configurar som:', error);
             }
+        },
+
+        async tryPlayAudio() {
+            try {
+                this.audioElement.volume = 0.7;
+                this.audioElement.currentTime = 0;
+
+                const playPromise = this.audioElement.play();
+                if (playPromise !== undefined) {
+                    await playPromise;
+                    console.log('✅ AudioElement: Som tocado com sucesso!');
+                    return true;
+                }
+            } catch (error) {
+                console.error('❌ AudioElement falhou:', error);
+                return false;
+            }
+        },
+
+        async tryPlayNewAudio() {
+            try {
+                // Tentar diferentes caminhos
+                const paths = [
+                    './assets/sounds/water-droplet-drip.mp3',
+                    'assets/sounds/water-droplet-drip.mp3',
+                    '../assets/sounds/water-droplet-drip.mp3',
+                    '../../assets/sounds/water-droplet-drip.mp3'
+                ];
+
+                for (const path of paths) {
+                    try {
+                        console.log(`Tentando caminho: ${path}`);
+                        const audio = new Audio(path);
+                        audio.volume = 0.7;
+
+                        await new Promise((resolve, reject) => {
+                            audio.addEventListener('canplay', resolve, { once: true });
+                            audio.addEventListener('error', reject, { once: true });
+                            audio.load();
+                        });
+
+                        await audio.play();
+                        console.log(`✅ Novo Audio: Som tocado com sucesso usando ${path}!`);
+                        return true;
+                    } catch (pathError) {
+                        console.log(`❌ Caminho ${path} falhou:`, pathError.message);
+                    }
+                }
+            } catch (error) {
+                console.error('❌ Novo Audio falhou:', error);
+                return false;
+            }
+        },
+
+        async tryWebAudioAPI() {
+            try {
+                if (!this.audioContext) {
+                    console.log('AudioContext não disponível');
+                    return false;
+                }
+
+                // Criar um oscilador para gerar um beep
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+
+                oscillator.frequency.setValueAtTime(800, this.audioContext.currentTime); // 800 Hz
+                gainNode.gain.setValueAtTime(0.3, this.audioContext.currentTime);
+
+                oscillator.start();
+                oscillator.stop(this.audioContext.currentTime + 0.5); // Tocar por 0.5 segundos
+
+                console.log('✅ Web Audio API: Beep tocado com sucesso!');
+                return true;
+            } catch (error) {
+                console.error('❌ Web Audio API falhou:', error);
+                return false;
+            }
+        },
+        startSoundLoop() {
+            console.log('=== START SOUND LOOP CHAMADA ===');
+            console.log('showAlert:', this.showAlert);
+            console.log('audioElement:', !!this.audioElement);
+
+            if (!this.showAlert || !this.audioElement) {
+                console.log('Saindo do startSoundLoop - condições não atendidas');
+                return;
+            }
+
+            console.log('Tentando tocar som imediatamente...');
+            console.log('Estado do áudio:', {
+                readyState: this.audioElement.readyState,
+                paused: this.audioElement.paused,
+                currentTime: this.audioElement.currentTime,
+                duration: this.audioElement.duration
+            });
+
+            // Garantir que o áudio está no início
+            this.audioElement.currentTime = 0;
+
+            // Tocar som imediatamente
+            const playPromise = this.audioElement.play();
+
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    console.log('✅ Som tocado com sucesso!');
+                }).catch(error => {
+                    console.error('❌ Erro ao reproduzir som:', error);
+                    console.error('Tipo do erro:', error.name);
+                    console.error('Mensagem:', error.message);
+                });
+            }
+
+            // Configurar intervalo para repetir o som
+            console.log('Configurando intervalo para repetir som...');
+            this.soundInterval = setInterval(() => {
+                console.log('Intervalo executado - verificando condições...');
+                if (this.showAlert && this.audioElement) {
+                    console.log('Repetindo som...');
+                    this.audioElement.currentTime = 0; // Reiniciar do início
+                    this.audioElement.play().then(() => {
+                        console.log('✅ Som repetido com sucesso');
+                    }).catch(error => {
+                        console.error('❌ Erro ao repetir som:', error);
+                    });
+                } else {
+                    console.log('Condições não atendidas para repetir som');
+                }
+            }, 3000); // Repetir a cada 3 segundos
         },
         async dismissAlert() {
             this.showAlert = false;
@@ -127,6 +361,10 @@ const HomeView = {
             if (this.audioElement) {
                 this.audioElement.pause();
                 this.audioElement.currentTime = 0;
+            }
+            if (this.soundInterval) {
+                clearInterval(this.soundInterval);
+                this.soundInterval = null;
             }
         }
     },

@@ -32,7 +32,65 @@ function initDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )
-  `);
+  `, (err) => {
+    if (err) {
+      console.error('Erro ao criar tabela:', err);
+    } else {
+      console.log('Tabela intake criada/verificada com sucesso');
+      // Adicionar dados de exemplo se a tabela estiver vazia
+      populateInitialData();
+    }
+  });
+}
+
+// Popular banco com dados iniciais para demonstração
+function populateInitialData() {
+  db.get("SELECT COUNT(*) as count FROM intake", (err, row) => {
+    if (err) {
+      console.error('Erro ao verificar dados:', err);
+      return;
+    }
+
+    if (row.count === 0) {
+      console.log('Banco vazio, adicionando dados de exemplo...');
+
+      // Adicionar dados dos últimos 7 dias
+      const statements = [];
+      const today = new Date();
+
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+
+        // Número aleatório de copos por dia (2-8)
+        const cupsPerDay = Math.floor(Math.random() * 7) + 2;
+
+        for (let j = 0; j < cupsPerDay; j++) {
+          // Horário aleatório durante o dia
+          const hour = Math.floor(Math.random() * 16) + 6; // Entre 6h e 22h
+          const minute = Math.floor(Math.random() * 60);
+
+          date.setHours(hour, minute, 0, 0);
+          const timestamp = date.toISOString().replace('T', ' ').slice(0, 19);
+
+          statements.push(`INSERT INTO intake (timestamp) VALUES ('${timestamp}')`);
+        }
+      }
+
+      // Executar todas as inserções
+      statements.forEach((statement, index) => {
+        db.run(statement, (err) => {
+          if (err) {
+            console.error(`Erro ao inserir dado ${index}:`, err);
+          } else if (index === statements.length - 1) {
+            console.log(`${statements.length} registros de exemplo adicionados com sucesso!`);
+          }
+        });
+      });
+    } else {
+      console.log(`Banco já possui ${row.count} registros`);
+    }
+  });
 }
 
 // Carregar configurações
@@ -78,6 +136,9 @@ function saveConfig() {
 
 // Mostrar alarme
 function showAlarm() {
+  console.log('=== FUNÇÃO SHOW ALARM CHAMADA ===');
+  console.log('Timestamp:', new Date().toISOString());
+
   // Não mostrar novo alarme se já há um ativo
   if (alarmActive) {
     console.log('Alarme já ativo, pulando novo alarme');
@@ -85,15 +146,39 @@ function showAlarm() {
   }
 
   console.log('Disparando novo alarme');
+  console.log('Config atual:', JSON.stringify(config));
   alarmActive = true;
 
-  // Enviar evento para o renderer com configurações de som
+  // Forçar janela a aparecer na frente
   if (mainWindow) {
-    mainWindow.webContents.send('alarm-triggered', {
-      soundEnabled: config.soundEnabled,
-      soundFile: config.soundFile,
-      soundVolume: config.soundVolume
-    });
+    console.log('MainWindow disponível, processando alarme...');
+
+    // Restaurar janela se estiver minimizada
+    if (mainWindow.isMinimized()) {
+      console.log('Restaurando janela minimizada');
+      mainWindow.restore();
+    }
+
+    // Trazer janela para frente
+    console.log('Trazendo janela para frente');
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.setAlwaysOnTop(true);
+
+    // Remover always on top após 5 segundos para não incomodar
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        console.log('Removendo always on top');
+        mainWindow.setAlwaysOnTop(false);
+      }
+    }, 5000);
+
+    // Enviar evento para o renderer
+    console.log('Enviando evento alarm-triggered para o renderer');
+    mainWindow.webContents.send('alarm-triggered');
+    console.log('Evento alarm-triggered enviado');
+  } else {
+    console.error('MainWindow não está disponível!');
   }
 }
 
@@ -115,12 +200,28 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      // Habilitar áudio
+      webSecurity: false,
+      allowRunningInsecureContent: true
     },
     icon: path.join(__dirname, 'assets', 'icon.png')
   });
 
   mainWindow.loadFile('src/renderer/index.html');
+
+  // Habilitar autoplay de áudio
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.webContents.executeJavaScript(`
+      // Habilitar autoplay de áudio
+      navigator.mediaDevices = navigator.mediaDevices || {};
+      if (!navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia = function() {
+          return Promise.resolve();
+        };
+      }
+    `);
+  });
 
   // Abrir DevTools em desenvolvimento
   if (process.env.NODE_ENV === 'development') {
