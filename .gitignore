@@ -154,4 +154,8 @@ out/
 
 # Database files (keep structure but not data)
 db/*.sqlite
+db/*.db
 !db/.gitkeep
+
+# User data and configurations
+config.json

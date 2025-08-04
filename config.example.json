@@ -1,0 +1,10 @@
+{
+  "interval": 60,
+  "soundEnabled": true,
+  "soundFile": "assets/sounds/water-droplet-drip.mp3",
+  "soundVolume": 0.7,
+  "theme": "light",
+  "dailyGoal": 8,
+  "notifications": true,
+  "systemTray": true
+}
