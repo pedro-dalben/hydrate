@@ -8,6 +8,14 @@ const HydrationAlert = {
                 <div class="alert-icon">💧</div>
                 <h2>Hora de se hidratar!</h2>
                 <p>É importante beber água regularmente para manter sua saúde.</p>
+                <div class="progress-info" v-if="progress">
+                    <div class="progress-text">
+                        {{ progress.current }}/{{ progress.goal }} copos hoje ({{ progress.percentage }}%)
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" :style="{ width: Math.min(progress.percentage, 100) + '%' }"></div>
+                    </div>
+                </div>
                 <div class="alert-buttons">
                     <button class="alert-btn primary" @click="drinkWater">
                         ✅ Bebi água!
@@ -19,7 +27,7 @@ const HydrationAlert = {
             </div>
         </div>
     `,
-    props: ['showAlert'],
+    props: ['showAlert', 'progress'],
     emits: ['dismiss', 'drink-water'],
     methods: {
         dismissAlert() {
@@ -38,52 +46,123 @@ const HomeView = {
     },
     template: `
         <div class="home-view">
+            <div class="daily-progress-card">
+                <div class="progress-header">
+                    <h3>Meta Diária</h3>
+                    <button class="theme-toggle" @click="toggleTheme" :title="'Alternar para tema ' + (currentTheme === 'light' ? 'escuro' : 'claro')">
+                        {{ currentTheme === 'light' ? '🌙' : '☀️' }}
+                    </button>
+                </div>
+                <div class="progress-circle">
+                    <svg viewBox="0 0 100 100" class="progress-svg">
+                        <circle cx="50" cy="50" r="45" class="progress-bg"></circle>
+                        <circle
+                            cx="50"
+                            cy="50"
+                            r="45"
+                            class="progress-bar-circle"
+                            :stroke-dasharray="circumference"
+                            :stroke-dashoffset="circumference - (progress.percentage / 100) * circumference"
+                        ></circle>
+                    </svg>
+                    <div class="progress-text">
+                        <div class="progress-number">{{ progress.current }}</div>
+                        <div class="progress-goal">/ {{ progress.goal }}</div>
+                        <div class="progress-label">copos</div>
+                    </div>
+                </div>
+                <div class="progress-percentage">{{ progress.percentage }}% da meta</div>
+            </div>
+
             <div class="water-counter">
-                <div class="counter-display">{{ todayCount }}</div>
-                <div class="counter-label">copos de água hoje</div>
                 <button class="drink-button" @click="addIntake" :disabled="loading">
-                    {{ loading ? 'Adicionando...' : '💧 Bebi água!' }}
+                    <div class="button-content">
+                        <span class="button-icon">💧</span>
+                        <span class="button-text">{{ loading ? 'Adicionando...' : 'Bebi água!' }}/>
+                    </div>
+                </button>
+            </div>
+
+            <div class="quick-actions">
+                <button class="quick-btn" @click="$emit('navigate', 'stats')">
+                    📊 Estatísticas
+                </button>
+                <button class="quick-btn" @click="exportData">
+                    📤 Exportar Dados
+                </button>
+                <button class="quick-btn" @click="importData">
+                    📥 Importar Dados
                 </button>
             </div>
 
             <HydrationAlert
                 :showAlert="showAlert"
+                :progress="progress"
                 @dismiss="dismissAlert"
                 @drink-water="drinkWaterFromAlert"
             />
+
+            <input type="file" ref="fileInput" @change="handleFileImport" accept=".json" style="display: none;">
         </div>
     `,
     data() {
         return {
-            todayCount: 0,
+            progress: { current: 0, goal: 8, percentage: 0 },
             loading: false,
             showAlert: false,
-            audioElement: null
+            audioElement: null,
+            soundInterval: null,
+            beepInterval: null,
+            currentTheme: 'light',
+            circumference: 2 * Math.PI * 45 // Para o círculo de progresso
         }
     },
     async mounted() {
-        await this.loadTodayCount();
+        await this.loadProgress();
         this.setupAlarmListener();
+        this.setupNavigationListener();
         this.setupAudio();
+        this.loadTheme();
     },
     methods: {
-        async loadTodayCount() {
+        async loadProgress() {
             try {
-                this.todayCount = await window.hydrateAPI.getTodayCount();
+                this.progress = await window.hydrateAPI.getDailyProgress();
             } catch (error) {
-                console.error('Erro ao carregar contagem:', error);
+                console.error('Erro ao carregar progresso:', error);
+            }
+        },
+        async loadTheme() {
+            try {
+                const config = await window.hydrateAPI.getConfig();
+                this.currentTheme = config.theme || 'light';
+                document.body.className = `theme-${this.currentTheme}`;
+            } catch (error) {
+                console.error('Erro ao carregar tema:', error);
+            }
+        },
+        async toggleTheme() {
+            try {
+                this.currentTheme = await window.hydrateAPI.toggleTheme();
+                document.body.className = `theme-${this.currentTheme}`;
+            } catch (error) {
+                console.error('Erro ao alternar tema:', error);
             }
         },
         async addIntake() {
             this.loading = true;
             try {
                 await window.hydrateAPI.addIntake();
-                this.todayCount++;
+                await this.loadProgress();
             } catch (error) {
                 console.error('Erro ao adicionar ingestão:', error);
             } finally {
                 this.loading = false;
             }
+        },
+        async drinkWaterFromAlert() {
+            await this.addIntake();
+            this.dismissAlert();
         },
         setupAlarmListener() {
             console.log('=== CONFIGURANDO LISTENER DE ALARME ===');
@@ -91,6 +170,11 @@ const HomeView = {
                 console.log('=== ALARME RECEBIDO NO RENDERER ===');
                 console.log('Timestamp do alarme:', new Date().toISOString());
                 this.showHydrationAlert();
+            });
+        },
+        setupNavigationListener() {
+            window.hydrateAPI.onNavigateTo((event, view) => {
+                this.$emit('navigate', view);
             });
         },
         setupAudio() {
@@ -127,6 +211,7 @@ const HomeView = {
         async showHydrationAlert() {
             console.log('=== SHOW HYDRATION ALERT CHAMADA ===');
             this.showAlert = true;
+            await this.loadProgress(); // Atualizar progresso
 
             // Tocar som de forma simples
             try {
@@ -141,7 +226,6 @@ const HomeView = {
                 console.error('Erro ao tocar som:', error);
             }
         },
-
         playSimpleSound() {
             console.log('=== PLAY SIMPLE SOUND ===');
 
@@ -162,7 +246,6 @@ const HomeView = {
                 this.tryAlternativeSound();
             }
         },
-
         tryAlternativeSound() {
             console.log('Tentando método alternativo...');
 
@@ -185,7 +268,6 @@ const HomeView = {
                 this.playBeep();
             }
         },
-
         playBeep() {
             console.log('Tentando beep com Web Audio API...');
 
@@ -226,96 +308,6 @@ const HomeView = {
                 console.error('❌ Beep também falhou:', error);
             }
         },
-
-        startAlternativeSoundLoop() {
-            this.soundInterval = setInterval(() => {
-                if (this.showAlert) {
-                    const audio = new Audio('assets/sounds/water-droplet-drip.mp3');
-                    audio.volume = 0.7;
-                    audio.play().catch(console.error);
-                }
-            }, 3000);
-        },
-
-        async tryPlayAudio() {
-            try {
-                this.audioElement.volume = 0.7;
-                this.audioElement.currentTime = 0;
-
-                const playPromise = this.audioElement.play();
-                if (playPromise !== undefined) {
-                    await playPromise;
-                    console.log('✅ AudioElement: Som tocado com sucesso!');
-                    return true;
-                }
-            } catch (error) {
-                console.error('❌ AudioElement falhou:', error);
-                return false;
-            }
-        },
-
-        async tryPlayNewAudio() {
-            try {
-                // Tentar diferentes caminhos
-                const paths = [
-                    './assets/sounds/water-droplet-drip.mp3',
-                    'assets/sounds/water-droplet-drip.mp3',
-                    '../assets/sounds/water-droplet-drip.mp3',
-                    '../../assets/sounds/water-droplet-drip.mp3'
-                ];
-
-                for (const path of paths) {
-                    try {
-                        console.log(`Tentando caminho: ${path}`);
-                        const audio = new Audio(path);
-                        audio.volume = 0.7;
-
-                        await new Promise((resolve, reject) => {
-                            audio.addEventListener('canplay', resolve, { once: true });
-                            audio.addEventListener('error', reject, { once: true });
-                            audio.load();
-                        });
-
-                        await audio.play();
-                        console.log(`✅ Novo Audio: Som tocado com sucesso usando ${path}!`);
-                        return true;
-                    } catch (pathError) {
-                        console.log(`❌ Caminho ${path} falhou:`, pathError.message);
-                    }
-                }
-            } catch (error) {
-                console.error('❌ Novo Audio falhou:', error);
-                return false;
-            }
-        },
-
-        async tryWebAudioAPI() {
-            try {
-                if (!this.audioContext) {
-                    console.log('AudioContext não disponível');
-                    return false;
-                }
-
-                // Criar um oscilador para gerar um beep
-                const oscillator = this.audioContext.createOscillator();
-                const gainNode = this.audioContext.createGain();
-
-                oscillator.connect(gainNode);
-                gainNode.connect(this.audioContext.destination);
-
-                oscillator.frequency.setValueAtTime(800, this.audioContext.currentTime); // 800 Hz
-                gainNode.gain.setValueAtTime(0.3, this.audioContext.currentTime);
-
-                oscillator.start();
-                oscillator.stop(this.audioContext.currentTime + 0.5); // Tocar por 0.5 segundos
-
-                console.log('✅ Web Audio API: Beep tocado com sucesso!');
-                return true;
-            } catch (error) {
-                console.error('❌ Web Audio API falhou:', error);
-                return false;
-            }
-        },
         startSoundLoop() {
             console.log('=== START SOUND LOOP CHAMADA ===');
             console.log('showAlert:', this.showAlert);
@@ -326,37 +318,12 @@ const HomeView = {
                 return;
             }
 
-            console.log('Tentando tocar som imediatamente...');
-            console.log('Estado do áudio:', {
-                readyState: this.audioElement.readyState,
-                paused: this.audioElement.paused,
-                currentTime: this.audioElement.currentTime,
-                duration: this.audioElement.duration
-            });
-
-            // Garantir que o áudio está no início
-            this.audioElement.currentTime = 0;
-
-            // Tocar som imediatamente
-            const playPromise = this.audioElement.play();
-
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    console.log('✅ Som tocado com sucesso!');
-                }).catch(error => {
-                    console.error('❌ Erro ao reproduzir som:', error);
-                    console.error('Tipo do erro:', error.name);
-                    console.error('Mensagem:', error.message);
-                });
-            }
-
-            // Configurar intervalo para repetir o som
             console.log('Configurando intervalo para repetir som...');
             this.soundInterval = setInterval(() => {
                 console.log('Intervalo executado - verificando condições...');
                 if (this.showAlert && this.audioElement) {
                     console.log('Repetindo som...');
-                    this.audioElement.currentTime = 0; // Reiniciar do início
+                    this.audioElement.currentTime = 0;
                     this.audioElement.play().then(() => {
                         console.log('✅ Som repetido com sucesso');
                     }).catch(error => {
@@ -365,7 +332,16 @@ const HomeView = {
                 } else {
                     console.log('Condições não atendidas para repetir som');
                 }
-            }, 3000); // Repetir a cada 3 segundos
+            }, 3000);
+        },
+        startAlternativeSoundLoop() {
+            this.soundInterval = setInterval(() => {
+                if (this.showAlert) {
+                    const audio = new Audio('assets/sounds/water-droplet-drip.mp3');
+                    audio.volume = 0.7;
+                    audio.play().catch(console.error);
+                }
+            }, 3000);
         },
         async dismissAlert() {
             this.showAlert = false;
@@ -377,10 +353,6 @@ const HomeView = {
             } catch (error) {
                 console.error('Erro ao dismissar alarme:', error);
             }
-        },
-        async drinkWaterFromAlert() {
-            await this.addIntake();
-            this.dismissAlert();
         },
         stopSound() {
             if (this.audioElement) {
@@ -395,15 +367,60 @@ const HomeView = {
                 clearInterval(this.beepInterval);
                 this.beepInterval = null;
             }
+        },
+        async exportData() {
+            try {
+                const data = await window.hydrateAPI.exportData();
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `hydrate-backup-${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                console.log('Dados exportados com sucesso');
+            } catch (error) {
+                console.error('Erro ao exportar dados:', error);
+                alert('Erro ao exportar dados: ' + error.message);
+            }
+        },
+        importData() {
+            this.$refs.fileInput.click();
+        },
+        async handleFileImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+
+                if (confirm('Isso irá substituir todos os seus dados atuais. Deseja continuar?')) {
+                    const result = await window.hydrateAPI.importData(data);
+                    alert(`${result.imported} registros importados com sucesso!`);
+                    await this.loadProgress();
+                }
+            } catch (error) {
+                console.error('Erro ao importar dados:', error);
+                alert('Erro ao importar dados: ' + error.message);
+            }
+
+            // Limpar input
+            event.target.value = '';
         }
     },
     beforeUnmount() {
         window.hydrateAPI.removeAlarmListener();
+        window.hydrateAPI.removeNavigateListener();
         this.stopSound();
     }
 };
 
-// Componente Stats
+// Componente Stats (atualizado)
 const StatsView = {
     template: `
         <div class="stats-view">
@@ -433,6 +450,28 @@ const StatsView = {
                     <div class="stat-value">{{ bestDay }}</div>
                     <div class="stat-label">Melhor Dia</div>
                 </div>
+                <div class="stat-card">
+                    <div class="stat-value">{{ streak }}</div>
+                    <div class="stat-label">Sequência (dias)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">{{ goalAchieved }}%</div>
+                    <div class="stat-label">Meta Atingida</div>
+                </div>
+            </div>
+
+            <div class="achievements">
+                <h3>🏆 Conquistas</h3>
+                <div class="achievement-list">
+                    <div v-for="achievement in achievements" :key="achievement.id"
+                         class="achievement" :class="{ unlocked: achievement.unlocked }">
+                        <div class="achievement-icon">{{ achievement.icon }}</div>
+                        <div class="achievement-info">
+                            <div class="achievement-title">{{ achievement.title }}</div>
+                            <div class="achievement-desc">{{ achievement.description }}</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     `,
@@ -443,12 +482,23 @@ const StatsView = {
             weekData: [],
             weekAverage: 0,
             totalWeek: 0,
-            bestDay: 0
+            bestDay: 0,
+            streak: 0,
+            goalAchieved: 0,
+            achievements: [
+                { id: 1, icon: '💧', title: 'Primeira Gota', description: 'Registre seu primeiro copo de água', unlocked: false },
+                { id: 2, icon: '🎯', title: 'Meta Diária', description: 'Atinja sua meta diária pela primeira vez', unlocked: false },
+                { id: 3, icon: '🔥', title: 'Sequência de 3', description: 'Mantenha uma sequência de 3 dias', unlocked: false },
+                { id: 4, icon: '⭐', title: 'Sequência de 7', description: 'Mantenha uma sequência de 7 dias', unlocked: false },
+                { id: 5, icon: '👑', title: 'Hidratação Master', description: 'Mantenha uma sequência de 30 dias', unlocked: false },
+                { id: 6, icon: '💯', title: 'Perfeccionista', description: 'Atinja 100% da meta por 7 dias seguidos', unlocked: false }
+            ]
         }
     },
     async mounted() {
         await this.loadStats();
         this.createChart();
+        this.checkAchievements();
     },
     methods: {
         async loadStats() {
@@ -460,8 +510,66 @@ const StatsView = {
                 this.totalWeek = this.weekData.reduce((sum, day) => sum + day.count, 0);
                 this.weekAverage = Math.round(this.totalWeek / 7);
                 this.bestDay = Math.max(...this.weekData.map(day => day.count), 0);
+
+                // Calcular sequência
+                await this.calculateStreak();
+
+                // Calcular porcentagem de meta atingida
+                const config = await window.hydrateAPI.getConfig();
+                const daysWithGoal = this.weekData.filter(day => day.count >= config.dailyGoal).length;
+                this.goalAchieved = Math.round((daysWithGoal / 7) * 100);
             } catch (error) {
                 console.error('Erro ao carregar estatísticas:', error);
+            }
+        },
+        async calculateStreak() {
+            try {
+                const data = await window.hydrateAPI.getIntakeByRange(30);
+                const config = await window.hydrateAPI.getConfig();
+
+                let currentStreak = 0;
+                const today = new Date();
+
+                for (let i = 0; i < 30; i++) {
+                    const date = new Date(today);
+                    date.setDate(date.getDate() - i);
+                    const dateStr = date.toISOString().split('T')[0];
+
+                    const dayData = data.find(d => d.date === dateStr);
+                    const count = dayData ? dayData.count : 0;
+
+                    if (count >= config.dailyGoal) {
+                        currentStreak++;
+                    } else {
+                        break;
+                    }
+                }
+
+                this.streak = currentStreak;
+            } catch (error) {
+                console.error('Erro ao calcular sequência:', error);
+            }
+        },
+        checkAchievements() {
+            // Primeira Gota
+            if (this.todayCount > 0) {
+                this.achievements[0].unlocked = true;
+            }
+
+            // Meta Diária
+            const config = window.hydrateAPI.getConfig();
+            if (this.todayCount >= 8) { // Assumindo meta padrão de 8
+                this.achievements[1].unlocked = true;
+            }
+
+            // Sequências
+            if (this.streak >= 3) this.achievements[2].unlocked = true;
+            if (this.streak >= 7) this.achievements[3].unlocked = true;
+            if (this.streak >= 30) this.achievements[4].unlocked = true;
+
+            // Perfeccionista
+            if (this.goalAchieved === 100) {
+                this.achievements[5].unlocked = true;
             }
         },
         createChart() {
@@ -528,7 +636,7 @@ const StatsView = {
     }
 };
 
-// Componente Settings
+// Componente Settings (atualizado)
 const SettingsView = {
     template: `
         <div class="settings-view">
@@ -538,57 +646,112 @@ const SettingsView = {
             </div>
 
             <form @submit.prevent="saveSettings">
-                <div class="setting-group">
-                    <label class="setting-label" for="interval">
-                        Intervalo entre lembretes (minutos):
-                    </label>
-                    <input
-                        type="number"
-                        id="interval"
-                        class="setting-input"
-                        v-model.number="settings.interval"
-                        min="1"
-                        max="480"
-                        required
-                    >
-                    <small style="color: #666; margin-top: 0.5rem; display: block;">
-                        Recomendado: 60-120 minutos
-                    </small>
-                </div>
+                <div class="settings-section">
+                    <h3>🎯 Meta e Lembretes</h3>
 
-                <div class="setting-group">
-                    <label class="setting-label">
+                    <div class="setting-group">
+                        <label class="setting-label" for="dailyGoal">
+                            Meta diária (copos):
+                        </label>
                         <input
-                            type="checkbox"
-                            v-model="settings.soundEnabled"
-                            style="margin-right: 0.5rem;"
+                            type="number"
+                            id="dailyGoal"
+                            class="setting-input"
+                            v-model.number="settings.dailyGoal"
+                            min="1"
+                            max="20"
+                            required
                         >
-                        Ativar som nos lembretes
-                    </label>
+                        <small style="color: #666; margin-top: 0.5rem; display: block;">
+                            Recomendado: 8 copos por dia
+                        </small>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label" for="interval">
+                            Intervalo entre lembretes (minutos):
+                        </label>
+                        <input
+                            type="number"
+                            id="interval"
+                            class="setting-input"
+                            v-model.number="settings.interval"
+                            min="1"
+                            max="480"
+                            required
+                        >
+                        <small style="color: #666; margin-top: 0.5rem; display: block;">
+                            Recomendado: 60-120 minutos
+                        </small>
+                    </div>
                 </div>
 
-                <div class="setting-group" v-if="settings.soundEnabled">
-                    <label class="setting-label" for="volume">
-                        Volume do som:
-                    </label>
-                    <input
-                        type="range"
-                        id="volume"
-                        class="setting-input"
-                        v-model.number="settings.soundVolume"
-                        min="0"
-                        max="1"
-                        step="0.1"
-                    >
-                    <small style="color: #666; margin-top: 0.5rem; display: block;">
-                        Volume: {{ Math.round(settings.soundVolume * 100) }}%
-                    </small>
+                <div class="settings-section">
+                    <h3>🔊 Som e Notificações</h3>
+
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input
+                                type="checkbox"
+                                v-model="settings.soundEnabled"
+                                style="margin-right: 0.5rem;"
+                            >
+                            Ativar som nos lembretes
+                        </label>
+                    </div>
+
+                    <div class="setting-group" v-if="settings.soundEnabled">
+                        <label class="setting-label" for="volume">
+                            Volume do som:
+                        </label>
+                        <input
+                            type="range"
+                            id="volume"
+                            class="setting-input"
+                            v-model.number="settings.soundVolume"
+                            min="0"
+                            max="1"
+                            step="0.1"
+                        >
+                        <small style="color: #666; margin-top: 0.5rem; display: block;">
+                            Volume: {{ Math.round(settings.soundVolume * 100) }}%
+                        </small>
+                    </div>
+
+                    <div class="setting-group" v-if="settings.soundEnabled">
+                        <button type="button" class="test-button" @click="testSound" :disabled="testing">
+                            {{ testing ? 'Testando...' : '🔊 Testar Som' }}
+                        </button>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input
+                                type="checkbox"
+                                v-model="settings.notifications"
+                                style="margin-right: 0.5rem;"
+                            >
+                            Ativar notificações nativas do sistema
+                        </label>
+                    </div>
                 </div>
 
-                <div class="setting-group" v-if="settings.soundEnabled">
-                    <button type="button" class="test-button" @click="testSound" :disabled="testing">
-                        {{ testing ? 'Testando...' : '🔊 Testar Som' }}
-                    </button>
+                <div class="settings-section">
+                    <h3>🎨 Aparência</h3>
+
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input
+                                type="checkbox"
+                                v-model="settings.systemTray"
+                                style="margin-right: 0.5rem;"
+                            >
+                            Mostrar ícone na bandeja do sistema
+                        </label>
+                        <small style="color: #666; margin-top: 0.5rem; display: block;">
+                            Permite minimizar o app para a bandeja
+                        </small>
+                    </div>
                 </div>
 
                 <button type="submit" class="save-button" :disabled="saving">
@@ -606,7 +769,11 @@ const SettingsView = {
             settings: {
                 interval: 60,
                 soundEnabled: true,
-                soundVolume: 0.7
+                soundVolume: 0.7,
+                dailyGoal: 8,
+                notifications: true,
+                systemTray: true,
+                theme: 'light'
             },
             saving: false,
             testing: false,
@@ -625,7 +792,11 @@ const SettingsView = {
                 this.settings = {
                     interval: config.interval || 60,
                     soundEnabled: config.soundEnabled !== false,
-                    soundVolume: config.soundVolume || 0.7
+                    soundVolume: config.soundVolume || 0.7,
+                    dailyGoal: config.dailyGoal || 8,
+                    notifications: config.notifications !== false,
+                    systemTray: config.systemTray !== false,
+                    theme: config.theme || 'light'
                 };
             } catch (error) {
                 console.error('Erro ao carregar configurações:', error);
@@ -657,14 +828,10 @@ const SettingsView = {
             this.saveMessage = '';
 
             try {
-                // Criar objeto simples com dados primitivos
-                const configToSave = {
-                    interval: Number(this.settings.interval),
-                    soundEnabled: Boolean(this.settings.soundEnabled),
-                    soundVolume: Number(this.settings.soundVolume)
-                };
+                console.log('Enviando configurações:', this.settings);
+                const result = await window.hydrateAPI.setConfig(this.settings);
+                console.log('Resultado recebido:', result);
 
-                await window.hydrateAPI.setConfig(configToSave);
                 this.saveMessage = 'Configurações salvas com sucesso!';
 
                 setTimeout(() => {
@@ -672,7 +839,7 @@ const SettingsView = {
                 }, 3000);
             } catch (error) {
                 console.error('Erro ao salvar configurações:', error);
-                this.saveMessage = `Erro ao salvar: ${error.message || error}`;
+                this.saveMessage = 'Erro ao salvar: ' + error.message;
             } finally {
                 this.saving = false;
             }
@@ -719,13 +886,18 @@ const App = {
             </header>
 
             <main class="main-content">
-                <component :is="currentView + 'View'" :key="currentView"></component>
+                <component :is="currentView + 'View'" :key="currentView" @navigate="navigateTo"></component>
             </main>
         </div>
     `,
     data() {
         return {
             currentView: 'home'
+        }
+    },
+    methods: {
+        navigateTo(view) {
+            this.currentView = view;
         }
     }
 };

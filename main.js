@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 
 let mainWindow;
+let tray = null;
 let db;
 let alarmInterval;
 let alarmActive = false; // Controla se há um alarme ativo
@@ -11,7 +12,11 @@ let config = {
   interval: 60,
   soundEnabled: true,
   soundFile: "assets/sounds/water-droplet-drip.mp3",
-  soundVolume: 0.7
+  soundVolume: 0.7,
+  theme: 'light',
+  dailyGoal: 8,
+  notifications: true,
+  systemTray: true
 }; // configurações padrão
 
 // Inicialização do banco de dados
@@ -193,6 +198,112 @@ function setupAlarm() {
   alarmInterval = setInterval(showAlarm, intervalMs);
 }
 
+// Criar system tray
+function createTray() {
+  if (!config.systemTray) return;
+
+  const iconPath = path.join(__dirname, 'assets', 'icon.png');
+  tray = new Tray(iconPath);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '💧 Bebi água!',
+      click: async () => {
+        try {
+          await addIntakeFromTray();
+          showTrayNotification('Água registrada! 💧');
+        } catch (error) {
+          console.error('Erro ao registrar água do tray:', error);
+        }
+      }
+    },
+    { type: 'separator' },
+    {
+      label: '📊 Mostrar estatísticas',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.webContents.send('navigate-to', 'stats');
+        }
+      }
+    },
+    {
+      label: '⚙️ Configurações',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.webContents.send('navigate-to', 'settings');
+        }
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Sair',
+      click: () => {
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setContextMenu(contextMenu);
+  tray.setToolTip('Hydrate - Lembrete de Hidratação');
+
+  // Clique duplo para mostrar janela
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+      }
+    }
+  });
+}
+
+// Adicionar ingestão via tray
+async function addIntakeFromTray() {
+  return new Promise((resolve, reject) => {
+    db.run("INSERT INTO intake DEFAULT VALUES", function(err) {
+      if (err) reject(err);
+      else resolve(this.lastID);
+    });
+  });
+}
+
+// Mostrar notificação do tray
+function showTrayNotification(message) {
+  if (tray) {
+    tray.displayBalloon({
+      title: 'Hydrate',
+      content: message,
+      icon: path.join(__dirname, 'assets', 'icon.png')
+    });
+  }
+}
+
+// Mostrar notificação nativa
+function showNativeNotification(title, body) {
+  if (!config.notifications) return;
+
+  if (Notification.isSupported()) {
+    const notification = new Notification({
+      title: title,
+      body: body,
+      icon: path.join(__dirname, 'assets', 'icon.png'),
+      sound: config.soundEnabled
+    });
+
+    notification.show();
+
+    notification.on('click', () => {
+      if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 800,
@@ -337,6 +448,108 @@ ipcMain.handle('dismiss-alarm', async () => {
   }
 });
 
+// Handler para exportar dados
+ipcMain.handle('export-data', async () => {
+  try {
+    return new Promise((resolve, reject) => {
+      db.all("SELECT * FROM intake ORDER BY timestamp", (err, rows) => {
+        if (err) reject(err);
+        else {
+          const exportData = {
+            exportDate: new Date().toISOString(),
+            config: config,
+            intakeData: rows
+          };
+          resolve(exportData);
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Erro ao exportar dados:', error);
+    throw error;
+  }
+});
+
+// Handler para importar dados
+ipcMain.handle('import-data', async (event, importData) => {
+  try {
+    return new Promise((resolve, reject) => {
+      db.serialize(() => {
+        // Limpar dados existentes
+        db.run("DELETE FROM intake", (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          // Importar novos dados
+          const stmt = db.prepare("INSERT INTO intake (timestamp) VALUES (?)");
+          let imported = 0;
+
+          importData.intakeData.forEach((row) => {
+            stmt.run(row.timestamp, (err) => {
+              if (err) {
+                console.error('Erro ao importar linha:', err);
+              } else {
+                imported++;
+              }
+            });
+          });
+
+          stmt.finalize(() => {
+            console.log(`${imported} registros importados`);
+            resolve({ imported });
+          });
+        });
+      });
+    });
+  } catch (error) {
+    console.error('Erro ao importar dados:', error);
+    throw error;
+  }
+});
+
+// Handler para obter progresso da meta diária
+ipcMain.handle('get-daily-progress', async () => {
+  try {
+    return new Promise((resolve, reject) => {
+      db.get(
+        "SELECT COUNT(*) as count FROM intake WHERE DATE(timestamp) = DATE('now')",
+        (err, row) => {
+          if (err) reject(err);
+          else {
+            const progress = {
+              current: row.count,
+              goal: config.dailyGoal || 8,
+              percentage: config.dailyGoal ? Math.round((row.count / config.dailyGoal) * 100) : 0
+            };
+            resolve(progress);
+          }
+        }
+      );
+    });
+  } catch (error) {
+    console.error('Erro ao obter progresso:', error);
+    throw error;
+  }
+});
+
+// Handler para alternar tema
+ipcMain.handle('toggle-theme', async () => {
+  try {
+    config.theme = config.theme === 'light' ? 'dark' : 'light';
+    saveConfig();
+
+    // Aplicar tema no sistema
+    nativeTheme.themeSource = config.theme;
+
+    return config.theme;
+  } catch (error) {
+    console.error('Erro ao alternar tema:', error);
+    throw error;
+  }
+});
+
 // Configurar argumentos do Chromium ANTES de criar a janela
 app.commandLine.appendSwitch('--autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('--disable-features', 'MediaSessionService');
@@ -346,7 +559,11 @@ app.whenReady().then(() => {
   initDatabase();
   loadConfig();
   createWindow();
+  createTray();
   setupAlarm();
+
+  // Aplicar tema inicial
+  nativeTheme.themeSource = config.theme;
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
