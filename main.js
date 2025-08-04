@@ -201,7 +201,6 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      // Habilitar áudio
       webSecurity: false,
       allowRunningInsecureContent: true
     },
@@ -210,16 +209,35 @@ function createWindow() {
 
   mainWindow.loadFile('src/renderer/index.html');
 
-  // Habilitar autoplay de áudio
+  // Habilitar autoplay de áudio quando a página carregar
   mainWindow.webContents.on('did-finish-load', () => {
+    console.log('Página carregada, habilitando autoplay...');
+
+    // Executar JavaScript para habilitar autoplay
     mainWindow.webContents.executeJavaScript(`
-      // Habilitar autoplay de áudio
-      navigator.mediaDevices = navigator.mediaDevices || {};
-      if (!navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia = function() {
-          return Promise.resolve();
-        };
+      console.log('Executando script para habilitar autoplay...');
+
+      // Criar um contexto de áudio e ativá-lo
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          const audioContext = new AudioContextClass();
+          if (audioContext.state === 'suspended') {
+            audioContext.resume().then(() => {
+              console.log('AudioContext ativado com sucesso');
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao ativar AudioContext:', error);
       }
+
+      // Simular interação do usuário para habilitar autoplay
+      document.addEventListener('DOMContentLoaded', () => {
+        console.log('DOM carregado, simulando interação...');
+        const event = new MouseEvent('click', { bubbles: true });
+        document.body.dispatchEvent(event);
+      });
     `);
   });
 
@@ -318,6 +336,11 @@ ipcMain.handle('dismiss-alarm', async () => {
     throw error;
   }
 });
+
+// Configurar argumentos do Chromium ANTES de criar a janela
+app.commandLine.appendSwitch('--autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('--disable-features', 'MediaSessionService');
+app.commandLine.appendSwitch('--disable-web-security');
 
 app.whenReady().then(() => {
   initDatabase();

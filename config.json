@@ -1,5 +1,5 @@
 {
-  "interval": 1,
+  "interval": 30,
   "soundEnabled": true,
   "soundFile": "assets/sounds/water-droplet-drip.mp3",
   "soundVolume": 0.7

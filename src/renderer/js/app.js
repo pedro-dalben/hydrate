@@ -94,122 +94,147 @@ const HomeView = {
             });
         },
         setupAudio() {
-            console.log('=== CONFIGURANDO ÁUDIO ===');
-            const audioPath = './assets/sounds/water-droplet-drip.mp3';
-            console.log('Caminho do áudio:', audioPath);
+            console.log('=== CONFIGURANDO ÁUDIO SIMPLES ===');
 
-            this.audioElement = new Audio(audioPath);
+            // Criar elemento de áudio simples
+            this.audioElement = document.createElement('audio');
+            this.audioElement.src = 'assets/sounds/water-droplet-drip.mp3';
             this.audioElement.preload = 'auto';
-            this.audioElement.loop = false;
-            this.soundInterval = null;
-            this.audioReady = false;
+            this.audioElement.volume = 0.7;
 
-            // Adicionar listeners para debug
-            this.audioElement.addEventListener('loadstart', () => {
-                console.log('Áudio: Iniciando carregamento');
-            });
+            // Adicionar ao DOM (necessário para alguns browsers)
+            this.audioElement.style.display = 'none';
+            document.body.appendChild(this.audioElement);
 
+            console.log('Elemento de áudio criado e adicionado ao DOM');
+
+            // Listeners básicos
             this.audioElement.addEventListener('canplay', () => {
-                console.log('Áudio: Pronto para reproduzir');
-                this.audioReady = true;
-            });
-
-            this.audioElement.addEventListener('canplaythrough', () => {
-                console.log('Áudio: Pode reproduzir completamente');
-                this.audioReady = true;
+                console.log('✅ Áudio pronto para reproduzir');
             });
 
             this.audioElement.addEventListener('error', (e) => {
-                console.error('ERRO NO ÁUDIO:', e);
-                console.error('Tipo do erro:', e.type);
-                console.error('Erro detalhado:', this.audioElement.error);
-                if (this.audioElement.error) {
-                    console.error('Código do erro:', this.audioElement.error.code);
-                    console.error('Mensagem do erro:', this.audioElement.error.message);
-                }
+                console.error('❌ Erro no áudio:', e);
             });
 
             this.audioElement.addEventListener('play', () => {
-                console.log('✅ Áudio: Reprodução iniciada');
+                console.log('🔊 Áudio começou a tocar');
             });
 
-            this.audioElement.addEventListener('ended', () => {
-                console.log('Áudio: Reprodução finalizada');
-            });
-
-            this.audioElement.addEventListener('loadeddata', () => {
-                console.log('Áudio: Dados carregados');
-            });
-
-            this.audioElement.addEventListener('loadedmetadata', () => {
-                console.log('Áudio: Metadados carregados');
-                console.log('Duração:', this.audioElement.duration);
-            });
-
-            // Tentar carregar o áudio
-            console.log('Carregando arquivo de áudio...');
+            // Tentar carregar
             this.audioElement.load();
-
-            // Criar um contexto de áudio para garantir que funcione
-            this.setupAudioContext();
-        },
-
-        setupAudioContext() {
-            // Criar um contexto de áudio para contornar restrições do browser
-            try {
-                if (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined') {
-                    const AudioContextClass = AudioContext || webkitAudioContext;
-                    this.audioContext = new AudioContextClass();
-                    console.log('AudioContext criado:', this.audioContext.state);
-
-                    // Tentar ativar o contexto
-                    if (this.audioContext.state === 'suspended') {
-                        this.audioContext.resume().then(() => {
-                            console.log('AudioContext ativado');
-                        });
-                    }
-                }
-            } catch (error) {
-                console.error('Erro ao criar AudioContext:', error);
-            }
         },
         async showHydrationAlert() {
             console.log('=== SHOW HYDRATION ALERT CHAMADA ===');
-            console.log('Definindo showAlert como true...');
             this.showAlert = true;
-            console.log('showAlert atual:', this.showAlert);
 
-            // Tocar som se habilitado
+            // Tocar som de forma simples
             try {
-                console.log('Carregando configurações...');
                 const config = await window.hydrateAPI.getConfig();
                 console.log('Config do som:', config);
 
                 if (config.soundEnabled) {
-                    console.log('Som habilitado, tentando múltiplas abordagens...');
-
-                    // Abordagem 1: Tentar com o audioElement
-                    if (this.audioElement) {
-                        console.log('Tentativa 1: AudioElement');
-                        await this.tryPlayAudio();
-                    }
-
-                    // Abordagem 2: Criar novo elemento de áudio
-                    console.log('Tentativa 2: Novo elemento de áudio');
-                    await this.tryPlayNewAudio();
-
-                    // Abordagem 3: Usar Web Audio API
-                    console.log('Tentativa 3: Web Audio API');
-                    await this.tryWebAudioAPI();
-
-                    // Iniciar loop de som
-                    this.startSoundLoop();
-                } else {
-                    console.log('Som desabilitado nas configurações');
+                    console.log('Som habilitado, tentando tocar...');
+                    this.playSimpleSound();
                 }
             } catch (error) {
-                console.error('Erro ao configurar som:', error);
+                console.error('Erro ao tocar som:', error);
             }
+        },
+
+        playSimpleSound() {
+            console.log('=== PLAY SIMPLE SOUND ===');
+
+            // Método 1: Usar o audioElement existente
+            if (this.audioElement) {
+                console.log('Tentando com audioElement existente...');
+                this.audioElement.currentTime = 0;
+                this.audioElement.play()
+                    .then(() => {
+                        console.log('✅ Som tocado com audioElement!');
+                        this.startSoundLoop();
+                    })
+                    .catch(error => {
+                        console.log('❌ AudioElement falhou, tentando método 2...');
+                        this.tryAlternativeSound();
+                    });
+            } else {
+                this.tryAlternativeSound();
+            }
+        },
+
+        tryAlternativeSound() {
+            console.log('Tentando método alternativo...');
+
+            // Método 2: Criar novo Audio
+            try {
+                const audio = new Audio('assets/sounds/water-droplet-drip.mp3');
+                audio.volume = 0.7;
+
+                audio.play()
+                    .then(() => {
+                        console.log('✅ Som tocado com novo Audio!');
+                        this.startAlternativeSoundLoop();
+                    })
+                    .catch(error => {
+                        console.log('❌ Novo Audio falhou, tentando beep...');
+                        this.playBeep();
+                    });
+            } catch (error) {
+                console.log('❌ Erro ao criar novo Audio, tentando beep...');
+                this.playBeep();
+            }
+        },
+
+        playBeep() {
+            console.log('Tentando beep com Web Audio API...');
+
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + 0.5);
+
+                console.log('✅ Beep tocado!');
+
+                // Repetir beep a cada 3 segundos
+                this.beepInterval = setInterval(() => {
+                    if (this.showAlert) {
+                        const osc = audioContext.createOscillator();
+                        const gain = audioContext.createGain();
+
+                        osc.connect(gain);
+                        gain.connect(audioContext.destination);
+
+                        osc.frequency.setValueAtTime(800, audioContext.currentTime);
+                        gain.gain.setValueAtTime(0.3, audioContext.currentTime);
+
+                        osc.start();
+                        osc.stop(audioContext.currentTime + 0.5);
+                    }
+                }, 3000);
+
+            } catch (error) {
+                console.error('❌ Beep também falhou:', error);
+            }
+        },
+
+        startAlternativeSoundLoop() {
+            this.soundInterval = setInterval(() => {
+                if (this.showAlert) {
+                    const audio = new Audio('assets/sounds/water-droplet-drip.mp3');
+                    audio.volume = 0.7;
+                    audio.play().catch(console.error);
+                }
+            }, 3000);
         },
 
         async tryPlayAudio() {
@@ -365,6 +390,10 @@ const HomeView = {
             if (this.soundInterval) {
                 clearInterval(this.soundInterval);
                 this.soundInterval = null;
+            }
+            if (this.beepInterval) {
+                clearInterval(this.beepInterval);
+                this.beepInterval = null;
             }
         }
     },
