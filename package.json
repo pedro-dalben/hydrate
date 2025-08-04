@@ -1,0 +1,23 @@
+{
+  "name": "hydrate",
+  "version": "1.0.0",
+  "description": "Aplicativo desktop para lembrar de beber água",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron . --no-sandbox",
+    "build": "electron-builder",
+    "start": "electron . --no-sandbox"
+  },
+  "keywords": ["electron", "vue", "hydration", "health"],
+  "author": "Developer",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.6",
+    "vue": "^3.3.0",
+    "chart.js": "^4.4.0"
+  }
+}
